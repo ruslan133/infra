@@ -1,0 +1,115 @@
+---
+
+- name: setup docker registry
+  hosts: srv1
+  become: yes
+
+  
+  tasks:
+  
+  - name: copy /etc/hosts
+    copy: 
+      src: ./files/hosts
+      dest: /etc/
+
+  - name: copy ssh keys
+    copy:
+      src: ~/.ssh
+      dest: /home/ubuntu
+  
+  - name: copy ssh keys for CI/CD user
+    copy:
+      src: ~/.ssh
+      dest: home/gitlab-runner
+
+  - name: install tools
+    apt:
+      update_cache: yes 
+      pkg:
+      - ca-certificates
+      - curl
+      - gnupg
+      state: latest
+  
+  - name: Add Docker’s official GPG key step1
+    shell: install -m 0755 -d /etc/apt/keyrings
+
+  - name: Add Docker’s official GPG key step2
+    shell: "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg"
+
+  - name: Add Docker’s official GPG key step3
+    file: 
+      path: /etc/apt/keyrings/docker.gpg
+      mode: '0444'
+
+  - name: set up the repository
+    shell: echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null 
+
+  - name: install docker utils
+    apt:
+      update_cache: yes
+      pkg:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+      state: latest
+  
+  - name: add gitlab repo
+    shell: 'curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash'
+
+  - name: install gitlab runner
+    apt: 
+      name: gitlab-runner
+      state: present
+
+  - name: register runner
+    shell: "gitlab-runner register --url https://gitlab.com/ --token glrt-xD_ymrryks2AqCT_3GJC --executor shell --name sr -n"
+  
+  - name: add gitlab-runner to the docker group
+    user:
+      name: gitlab-runner
+      group: docker
+  
+  - name: install docker-compose
+    shell: curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  
+  - name: make docker-compose executable
+    file:
+      path: /usr/local/bin/docker-compose
+      mode: u+rwx,g-rwx,o-rwx
+  
+  - name: make directories
+    file:
+      path: "{{ item }}"
+      state: directory
+    loop:
+      - /home/ubuntu/compose
+      - /home/ubuntu/compose/alertmanager
+      - /home/ubuntu/compose/blackbox
+      - /home/ubuntu/compose/grafana
+      - /home/ubuntu/compose/prometheus
+
+  - name: copy files for prometheus-stack
+    template:
+      src: "{{ item.src }}"
+      dest: "{{ item.dest }}"
+    loop:
+      - {src: './files/prometheus-stack_templates/compose/docker-compose.yml.j2',dest: '/home/ubuntu/compose/docker-compose.yml'}
+      - {src: './files/prometheus-stack_templates/compose/alertmanager/config.yml.j2',dest: '/home/ubuntu/compose/alertmanager/config.yml'}
+      - {src: './files/prometheus-stack_templates/compose/blackbox/blackbox.yml.j2',dest: '/home/ubuntu/compose/blackbox/blackbox.yml'}
+      - {src: './files/prometheus-stack_templates/compose/prometheus/prometheus.yml.j2',dest: '/home/ubuntu/compose/prometheus/prometheus.yml'}
+  
+  - name: copy alert rules
+    copy: 
+      src: './files/prometheus-stack_templates/compose/prometheus/alert.rules'
+      dest: '/home/ubuntu/compose/prometheus/alert.rules'
+
+  - name: start monitoring
+    shell: 
+      cmd: docker-compose up -d
+      chdir: /home/ubuntu/compose/
+
+  
+  

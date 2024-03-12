@@ -1,0 +1,39 @@
+groups:
+- name: example
+  rules:
+  - alert: PrometheusTargetMissing
+    expr: up == 0
+    for: 0m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Prometheus target missing (instance {{ $labels.instance }})"
+      description: "A Prometheus target has disappeared. An exporter might be crashed. VALUE = {{ $value }}  LABELS: {{ $labels }}"
+
+  - alert: uptime
+    expr: node_time_seconds-node_boot_time_seconds <= 600
+    for: 0m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Node reboot (instance {{ $labels.instance }})"
+      description: "Node reboot VALUE = {{ $value }}  LABELS: {{ $labels }}"
+
+  - alert: status code
+    expr: probe_http_status_code != 200
+    for: 0m
+    labels:
+      severity: warning
+    annotations:
+      summary: "status code (instance {{ $labels.instance }})"
+      description: "status code VALUE = {{ $value }}  LABELS: {{ $labels }}"
+
+  - alert: probe_duration
+    expr: probe_duration_secondsde > 5
+    for: 0m
+    labels:
+      severity: warning
+    annotations:
+      summary: "probe duration (instance {{ $labels.instance }})"
+      description: "probe duration VALUE = {{ $value }}  LABELS: {{ $labels }}"
+

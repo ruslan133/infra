@@ -1,0 +1,22 @@
+---
+- name: setup inventory
+  hosts: localhost
+  
+  vars:
+    vms:
+    - name: kuber1
+    - name: kuber2
+    - name: srv1
+
+  tasks:
+
+  - name: deploy vms
+    shell:
+      chdir: /Users/sergejsirokov/Projects/diplom/sprint1/cloud-terraform
+      cmd: terraform apply -auto-approve
+
+  
+  - name: setup inventory
+    shell: "echo {{ item.name }} ansible_host=$(yc compute instance list | grep {{ item.name }} | awk '{print $10}') ansible_user=ubuntu ansible_ssh_private_key_file=/Users/sergejsirokov/.ssh/id_rsa >> /Users/sergejsirokov/Projects/diplom/sprint1/ansible/hosts.txt"
+    with_items: "{{ vms }}"  
+

@@ -1,0 +1,20 @@
+---
+- name: destroy
+  hosts: localhost
+  
+  tasks:
+
+  - name: terraform destroy
+    shell:
+      chdir: /Users/sergejsirokov/Projects/diplom/sprint1/cloud-terraform
+      cmd: terraform destroy -auto-approve
+
+  - name: remove hosts file
+    file:
+      path: /Users/sergejsirokov/Projects/diplom/sprint1/ansible/files/hosts
+      state: absent
+  
+  - name: cleanup
+    file:
+      path: /Users/sergejsirokov/Projects/diplom/sprint1/ansible/hosts.txt
+      state: absent

@@ -1,0 +1,245 @@
+---
+
+- name: make /etc/hosts/
+  hosts: localhost
+  gather_facts: no
+  
+  vars:
+    hostnames:
+    - name: kuber1
+    - name: kuber2
+
+  tasks:
+
+  - name: make empty file
+    file:
+      path: ./files/hosts
+      state: touch
+
+  - name: generate
+    shell: "echo $(yc compute instance list| grep {{ item.name }} | awk '{print $12}') {{ item.name }} >> /Users/sergejsirokov/Projects/diplom/sprint1/ansible/files/hosts"
+    with_items: "{{ hostnames }}"
+
+    
+- name: install kuber
+  hosts: kuber*
+  become: yes
+  gather_facts: no
+
+
+  tasks:
+  
+  - name: copy /etc/hosts
+    copy: 
+      src: ./files/hosts
+      dest: /etc/
+  
+  - name: disable swap
+    shell: "swapoff -a "
+
+  - name: touch /etc/modules-load.d/containerd.conf
+    file:
+      path: /etc/modules-load.d/containerd.conf
+      state: touch
+
+  - name: load kernel modules
+    lineinfile :
+      path: /etc/modules-load.d/containerd.conf 
+      line: "overlay"
+  
+  - name: load kernel modules2
+    lineinfile :
+      path: /etc/modules-load.d/containerd.conf
+      line: "br_netfilter"
+  
+  - name: run modules
+    shell: "modprobe overlay"
+  
+  - name: run modules2
+    shell: "modprobe br_netfilter"
+  
+  - name: touch /etc/sysctl.d/kubernetes.conf
+    file:
+      path: /etc/sysctl.d/kubernetes.conf
+      state: touch
+
+  - name: set up kernerl parameters for kuber
+    lineinfile:
+      path: /etc/sysctl.d/kubernetes.conf
+      line: "net.bridge.bridge-nf-call-ip6tables = 1"
+  
+  - name: set up kernerl parameters for kuber2
+    lineinfile:
+      path: /etc/sysctl.d/kubernetes.conf
+      line: "net.bridge.bridge-nf-call-iptables = 1"
+  
+  - name: set up kernerl parameters for kuber3
+    lineinfile:
+      path: /etc/sysctl.d/kubernetes.conf
+      line: "net.ipv4.ip_forward = 1"
+    notify: apply_kernel_params
+
+  - name: install dependencies
+    apt:
+      pkg:
+      - curl
+      - gnupg2
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+      state: latest
+  
+  - name: enable docker repo
+    shell: "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmour -o /etc/apt/trusted.gpg.d/docker.gpg --yes"
+
+  - name: enable docker repo2
+    shell: 'add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" -y'
+
+  - name: install docker
+    apt:
+      update_cache: yes
+      name: containerd.io
+      state: latest
+
+  - name: configure_conatinerd
+    shell: "containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1"
+
+  - name: configure_conatinerd2
+    shell: 'sed -i "s/SystemdCgroup \= false/SystemdCgroup \= true/g" /etc/containerd/config.toml'
+
+  - name: restart containred
+    service:
+      name: containerd
+      state: restarted
+      enabled: true
+
+  - name: add kuber repo
+    shell: "curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmour -o /etc/apt/trusted.gpg.d/kubernetes-xenial.gpg --yes"
+
+  - name: add kuber repo2
+    shell: 'apt-add-repository "deb http://apt.kubernetes.io/ kubernetes-xenial main" -y'  
+
+  - name: install kuber
+    apt:
+      update_cache: yes
+      pkg:
+      - kubelet 
+      - kubeadm
+      - kubectl
+      state: latest
+    notify: apt-mark
+
+  - name: make empty file
+    file:
+      path: /home/ubuntu/.kuber_installed
+      state: touch
+
+  handlers:
+  
+  - name: apply_kernel_params
+    shell: "sysctl --system"
+  - name: apt-mark
+    shell: "apt-mark hold kubelet kubeadm kubectl"
+
+- name: kuber init
+  hosts: kuber1
+  become: yes
+  gather_facts: no
+
+  tasks:
+  
+  - name: kubeadm init
+    shell: "kubeadm init --control-plane-endpoint=kuber1"
+
+  - name: mkdir
+    file:
+      path: $HOME/.kube
+      state: directory
+
+  - name: copy config
+    copy:
+      src: /etc/kubernetes/admin.conf
+      remote_src: yes
+      dest: $HOME/.kube/config
+   
+  - name: chown
+    shell: "chown $(id -u):$(id -g) $HOME/.kube/config"
+
+  - name: install helm
+    shell: curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 && chmod 700 get_helm.sh && ./get_helm.sh
+
+  - name: mkdir for kuber app
+    file:
+      path: /root/kuber/
+      state: directory
+  
+  - name: clone git repo for app
+    shell:
+      cmd: "git clone https://gitlab.com/mist1014/helm.git" 
+      chdir: /root/kuber/
+
+  - name: clone git repo for elk
+    shell:
+      cmd: "git clone https://gitlab.com/mist1014/elk.git" 
+      chdir: /root/kuber/
+
+- name: add worker
+  hosts: localhost
+  gather_facts: no
+
+  tasks: 
+  
+  - name: add worker
+    shell: 
+      cmd: "bash add_worker.sh"
+      chdir: files/ 
+
+- name: create pv location
+  hosts: kuber2
+  gather_facts: no
+  
+  tasks:
+
+  - name: create pv location
+    file:
+      path: /home/ubuntu/kuber/pvlocal
+      state: directory
+  
+
+- name: finalyse kuber1
+  hosts: kuber1
+  become: yes
+  gather_facts: no
+
+  tasks:
+  
+  - name: install calico
+    shell: "kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico.yaml"
+
+  - name: create PVC for app
+    shell:
+      cmd: "kubectl apply -f sc.yaml && kubectl apply -f pv.yaml && kubectl apply -f pvc.yaml "
+      chdir: /root/kuber/helm/PVC
+  
+  - name: launch app
+    shell: helm install app /root/kuber/helm 
+
+  - name: launch filebeat
+    shell: helm install app /root/kuber/elk/filebeat
+  
+  - name: launch logstash
+    shell: helm install app /root/kuber/elk/logstash
+
+  - name: launch logstash
+    shell: helm install app /root/kuber/elk/logstash
+
+  - name: launch elasticsearch
+    shell: helm install app /root/kuber/elk/elasticsearch
+
+  - name: launch kibana
+    shell: helm install app /root/kuber/elk/kibana
+
+
+  
+
+ 
